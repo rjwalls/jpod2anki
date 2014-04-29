@@ -9,7 +9,8 @@ from bs4 import BeautifulSoup
 _description = "scrapes JapanesePod lesson page to create Anki deck"
 
 #Anki line style
-_template = u'<span style="font-family: Mincho; font-size: 50px">!!!WORD!!!</span>\t<span style="font-size: 50px; ">!!!WORD!!!</span><br>!!!ANSWER!!!<br><span style="">[sound:!!!AUDIO!!!]</span>'
+#Assumes a note template that takes the following five fields
+_template = u'!!!WORD!!!\t!!!ANSWER!!!\t!!!READING!!!\t[sound:!!!AUDIO!!!]\t!!!EXAMPLE!!!\t!!!TAG!!!'
 
 
 def main():
@@ -17,7 +18,7 @@ def main():
     parser.add_argument("deck_file", nargs='?', default='ankideck',
                         help="The output deck filename, can contain a path.")
     parser.add_argument("html_page")
-    parser.add_argument("-t", "--tag", type=str, default=None)
+    parser.add_argument("-t", "--tag", type=str, default=None, help="Defaults to page title.")
     parser.add_argument("-a", "--add", help="Add to existing files. Will overwrite files with same name", action='store_true')
     parser.add_argument("--textonly", action='store_true', help="Set to not download the audio files")
     args = parser.parse_args()
@@ -33,12 +34,25 @@ def main():
     else:
         os.makedirs(audio_dir)
 
-    words = get_vocab(args.html_page)
+    with open(args.html_page, 'r') as f:
+        soup = BeautifulSoup(f)
+
+        if not args.tag:
+            args.tag = get_tag(soup)
+
+        words = get_vocab(soup)
+
+        for word in words:
+            example = get_example(soup, word['kana'])
+
+            if example:
+                word['example'] = get_example_html(example)
+
 
     #Create the file if it doesn't exist, otherwise append to it
     with open(ankifile, 'a+') as f:
-        if args.tag:
-            f.write("tags:%s" % args.tag + os.linesep)
+        #if args.tag:
+        #    f.write("tags:%s" % args.tag + os.linesep)
 
         for word in words:
             filename = word['audio'].split('/')[-1]
@@ -46,9 +60,20 @@ def main():
 
             line = _template.replace("!!!WORD!!!", word['kana'])\
                 .replace("!!!ANSWER!!!", word['english'])\
-                .replace("!!!AUDIO!!!", filename).encode('utf-8')
+                .replace("!!!AUDIO!!!", filename)\
+                .replace("!!!READING!!!", "")
 
-            f.write(line + os.linesep)
+            if 'example' in word:
+                line = line.replace("!!!EXAMPLE!!!", word['example'])
+            else:
+                line = line.replace("!!!EXAMPLE!!!", "")
+
+            if args.tag:
+                line = line.replace("!!!TAG!!!", args.tag)
+            else:
+                line = line.replace("!!!TAG!!!", "")
+
+            f.write(line.encode('utf-8') + os.linesep)
 
             if not args.textonly:
                 urllib.urlretrieve(word['audio'], audiopath)
@@ -56,26 +81,69 @@ def main():
     pass
 
 
-def get_vocab(filepath):
-    with open(filepath, 'r') as f:
-        soup = BeautifulSoup(f)
-        words_html = soup.find_all('tr', {"id": "tr_words_"})
+def get_tag(soup):
+    #Grab the title to use for the tags
+    titles = soup.find_all('div', {'class': 'ill-lesson-main-title'})
 
-        words = []
+    if len(titles) == 0:
+        print 'No title found. Not adding tags.'
+        return
 
-        for word in words_html:
-            term = word.find_all('span', {'class': 'term'})[0].string
-            kana = word.find_all('span', {'class': 'kana'})[0].string
-            english = word.find_all('span', {'class': 'english'})[0].string
+    tag = titles[0].string.replace('.', '_').replace(' ', '_')
 
-            audio = word.find_all('span', {'class': 'ill-onebuttonplayer s17x17px'})[0]['data-url']
+    print 'Tag:', tag
 
-            words.append({"term": term,
-                          "kana": kana,
-                          "english": english,
-                          "audio": audio})
+    return tag
 
-        return words
+
+def get_vocab(soup):
+    words_html = soup.find_all('tr', {"id": "tr_words_"})
+
+    words = []
+
+    for word in words_html:
+        term = word.find_all('span', {'class': 'term'})[0].string
+        kana = word.find_all('span', {'class': 'kana'})[0].string
+        english = word.find_all('span', {'class': 'english'})[0].string
+
+        audio = word.find_all('span', {'class': 'ill-onebuttonplayer s17x17px'})[0]['data-url']
+
+        words.append({"term": term,
+                      "kana": kana,
+                      "english": english,
+                      "audio": audio})
+
+    return words
+
+
+def get_example_html(example):
+    kana, english = example
+
+    return u"%s<br><i>%s</i>" % (kana, english)
+
+
+def get_example(soup, kana_word):
+    """
+    Looks for an example sentence containing the word.
+    """
+
+    sentence_table_kana = soup.find_all('table', {'class': 'lesson-lbl-table lesson-transcript-Japanese transcript-7 ltr'})
+    sentence_table_english = soup.find_all('table', {'class': 'lesson-lbl-table lesson-transcript-Japanese transcript-2 ltr'})
+
+    kana_lines = sentence_table_kana[0].find_all('td', {'class': 'ctext'})
+    kana_lines = [l.string for l in kana_lines]
+
+    english_lines = sentence_table_english[0].find_all('td', {'class': 'ctext'})
+    english_lines = [l.string for l in english_lines]
+
+    #Split on '(' aka \uff08
+    kana_word = kana_word.split(u'\uff08')[0]
+
+    for x in xrange(len(kana_lines)):
+        if kana_word in kana_lines[x]:
+            return kana_lines[x], english_lines[x]
+
+    return
 
 
 if __name__ == '__main__':
