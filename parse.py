@@ -54,7 +54,13 @@ def main():
         #if args.tag:
         #    f.write("tags:%s" % args.tag + os.linesep)
 
+        print "Adding %d words." % len(words)
+
         for word in words:
+            if word['english'] is None:
+                print 'No definition for: ', word['kana']
+                continue
+
             filename = word['audio'].split('/')[-1]
             audiopath = os.path.join(audio_dir, filename)
 
@@ -119,7 +125,7 @@ def get_vocab(soup):
 def get_example_html(example):
     kana, english = example
 
-    return u"%s<br><i>%s</i>" % (kana, english)
+    return u"%s<br><i>%s</i>" % (kana.strip(), english.strip())
 
 
 def get_example(soup, kana_word):
@@ -137,11 +143,25 @@ def get_example(soup, kana_word):
     english_lines = [l.string for l in english_lines]
 
     #Split on '(' aka \uff08
-    kana_word = kana_word.split(u'\uff08')[0]
+    kana_word = kana_word.split(u'\uff08')[0].strip()
+
+    #Remove the weird long tilde \uff5e, used by jpod to denote prefixes and suffixes
+    kana_word = kana_word.replace(u'\uff5e', '')
 
     for x in xrange(len(kana_lines)):
         if kana_word in kana_lines[x]:
             return kana_lines[x], english_lines[x]
+
+    #We didn't find the whole word, so we need to guess now.
+    #e.g., Conjugated verbs won't match the kana_word
+    #Restrict ourselves to matching at least two kana
+    for y in xrange(len(kana_word), 1, -1):
+        sub = kana_word[:y]
+        for x in xrange(len(kana_lines)):
+            if sub in kana_lines[x]:
+                return kana_lines[x], english_lines[x]
+
+    print 'No example found for: ', kana_word
 
     return
 
