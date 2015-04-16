@@ -18,3 +18,13 @@ given by jpod2anki, e.g. "tag:121__Going_Up!".
 
 Finally, you'll need to transfer the audio file from the `ankideck.media` directory created by jpod2anki to the 
 `~/Documents/Anki/User\ 1/collection.media` directory that Anki uses. 
+
+## Batch Import
+
+You can import multiple lessons using:
+
+```bash
+find pages -name "*.html" -maxdepth 1 -print0| xargs -0I {} python parse.py jpod_96_125 {} -a
+```
+
+where `pages` is the directory with the lesson pages, `jpod_96_125` is the name you want to give the new deck. In this case, `96_125` denotes the lesson numbers.
